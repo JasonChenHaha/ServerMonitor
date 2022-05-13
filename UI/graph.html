@@ -1,0 +1,535 @@
+<html>
+    <head>
+        <style>
+            .canvas {
+                position: absolute;
+                top: 0px;
+                left: 0px;
+                pointer-events: none;
+                z-index: 1;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="setting" hidden style="font-size:10px;position:absolute;top:80px;">
+            <p>Node/Code</p>
+            <input id="settingName" type="text" placeholder="all" oninput="input()" style="width:225px;margin-top:-5px"/>
+            <p>颜色tpc上限</p>
+            <input id="settingTpcTop" type="text" style="margin-top:-5px"/>
+            <p style="margin-top:3px">告警tpc上限</p>
+            <input id="settingAlarmTop" type="text" style="margin-top:-5px"/>
+            <p style="margin-top:3px">告警时间间隔(min)</p>
+            <input id="settingAlarmInterval" type="text" style="margin-top:-5px"/>
+            <br/>
+            <input id="settingSubmit" type="button" value="提交" onClick="submit()" style="margin-top:5px;margin-right:10px;"/>
+            <p id="response" style="float:right;margin-right:200px;"/>
+        </div>
+        <div id="nodeDiv"></div>
+        <div style="position:absolute;left:270;top:15">
+            <button onclick="jumpToSortTable()" type="button">SortTable</button>
+        </div>
+        <canvas id="c" class="canvas"></canvas>
+        <canvas id="c2" class="canvas"></canvas>
+        <canvas id="c3" class="canvas"></canvas>
+        <canvas id="c4" class="canvas"></canvas>
+        <script>
+            var version="3.0.1"
+            var debug=%s
+            var env=%s
+            var nodeParams=[%s]            // array(id,text,subText,posX,posY)
+            var nodeParamsLength=5
+            var lineParams=[%s]            // array(id)
+            var lineParamsLength=1
+            var lineDetailParams=[%s]      // array(id,code,call,cost)
+            var lineDetailParamsLength=4
+            var settingParams=[%s]         // array(name,tpcTop,alarmTop,alarmInterval)
+            var settingParamsLength=4
+            var baseX=(window.innerWidth-%d)/2
+            var addr="%s"
+
+            var nodeMap=new Map()           // nodeId:(key:value)
+            var lineMap=new Map()           // lineId:(key:value)
+            var lineDetailMap=new Map()     // lineId:array(key:value)
+            var relationMap=new Map()       // nodeId:(node:array(node),line:array(line))
+            var settingMap=new Map()
+            var mouseForbidMap=new Array()
+
+            var maxY=0
+            for (var i=4;i<nodeParams.length;i+=nodeParamsLength) {
+                if (maxY<nodeParams[i]) {
+                    maxY=nodeParams[i]
+                }
+            }
+            c.width=window.innerWidth  // logo层
+            c.height=maxY+200
+            c2.width=c.width      // node层
+            c2.height=c.height
+            c3.width=c.width      // line层
+            c3.height=c.height
+            c4.width=c.width      // detail层
+            c4.height=c.height
+
+            // setting.style.bottom=window.innerHeight-canvas.height-10
+
+            var lineWidth=1
+            var lineWidth2=2
+            var ctx=c.getContext("2d")
+            ctx.textAlign="center"
+            ctx.textBaseline="middle"
+            ctx.font="15px Arial"
+            ctx.lineWidth=lineWidth
+            var ctx2=c2.getContext("2d")
+            ctx2.textAlign="center"
+            ctx2.textBaseline="middle"
+            ctx2.font="16px Arial"
+            ctx2.lineWidth=lineWidth
+            var ctx3=c3.getContext("2d")
+            ctx3.textBaseline="top"
+            ctx3.font="15px Arial"
+            ctx3.lineWidth=lineWidth2
+            var ctx4=c4.getContext("2d")
+            ctx4.textBaseline="top"
+            ctx4.font="15px Arial"
+            ctx4.lineWidth=lineWidth2
+
+            var baseY=80
+            var size1_x=0
+            var size1_y=ctx2.measureText('M').width
+            var size_x=new Map()
+            var hitNodeId=null,hitLineId=null
+            var detail=new Map()
+            var size4_y=ctx4.measureText('M').width+2
+
+            function init() {
+                for (var i=0;i<settingParams.length;i+=settingParamsLength) {
+                    var a=[settingParams[i+1],settingParams[i+2],settingParams[i+3]]
+                    settingMap.set(settingParams[i], a);       // settingParams[i] == name
+                }
+                if (debug) {
+                    // 初始化设置面板
+                    var all=settingMap.get("all")
+                    setting.style.display="block"
+                    settingTpcTop.value=all[0]
+                    settingAlarmTop.value=all[1]
+                    settingAlarmInterval.value=all[2]
+                    // 初始化鼠标禁用区域
+                    mouseForbidMap[0]=new Array(
+                        -200,
+                        setting.offsetLeft+settingName.offsetLeft+settingName.offsetWidth,
+                        setting.offsetTop,
+                        setting.offsetTop+settingSubmit.offsetTop+settingSubmit.offsetHeight
+                    )
+                }
+                for (var i=0;i<lineDetailParams.length;i+=lineDetailParamsLength) {
+                    var id=lineDetailParams[i]
+                    if (!lineDetailMap.has(id)) {
+                        lineDetailMap.set(id,new Array())
+                    }
+                    var fromTo=id.split("->")
+                    var arr=lineDetailMap.get(id)
+                    var m=new Map()
+                    m.set("id",id)
+                    var code=lineDetailParams[i+1],call=lineDetailParams[i+2],cost=lineDetailParams[i+3],tpc=Math.floor(cost/call)
+                    m.set("detail",code+"->"+"call:"+call+",cost:"+cost+",tpc:"+tpc)
+                    var tpcTop=(settingMap.get(code)||settingMap.get(fromTo[1])||settingMap.get("all"))[0]
+                    m.set("color",tpc_to_color(tpc,tpcTop))
+                    m.set("offsetY",(size4_y+(arr.length==0?0:4))*arr.length+3)
+                    arr[arr.length]=m
+
+                    if (!nodeMap.has(fromTo[0])) {nodeMap.set(fromTo[0], new Map())}
+                    if (!nodeMap.has(fromTo[1])) {nodeMap.set(fromTo[1], new Map())}
+                    var m=nodeMap.get(fromTo[0])
+                    m.set("call",(m.get("call")||0)+call)
+                    m.set("cost",(m.get("cost")||0)+cost)
+                    if (!lineMap.has(id)) {
+                        lineMap.set(id, new Map())
+                    }
+                    m=lineMap.get(id)
+                    m.set("tpc",Math.max((m.get("tpc")||0),tpc))
+                }
+                for (let arr of lineDetailMap.values()) {
+                    var width=0
+                    for (var i=0;i<arr.length;++i) {
+                        var a=ctx4.measureText(arr[i].get("detail")).width
+                        if (width<a) {width=a}
+                    }
+                    arr[0].set("sizeX",width+10)
+                    arr[0].set("sizeY",size4_y*arr.length+4*(arr.length-1)+8)
+                }
+                for (var i=0;i<nodeParams.length;i+=nodeParamsLength) {
+                    var id=nodeParams[i]
+                    var m=nodeMap.get(id)
+                    var a=ctx2.measureText(nodeParams[i+1]).width
+                    var b=ctx2.measureText(nodeParams[i+2]).width
+                    size1_x=(a<b?b:a)+10
+                    size_x.set(id,size1_x)
+                    m.set("id",id)
+                    m.set("text",nodeParams[i+1])
+                    m.set("subText",nodeParams[i+2])
+                    m.set("posX",nodeParams[i+3]+baseX-a/2)
+                    m.set("subPosX",nodeParams[i+3]+baseX-b/2)
+                    m.set("posY",nodeParams[i+4]+baseY)
+                    m.set("subPosY",m.get("posY")+size1_y+6)
+                    m.set("rectPosX",nodeParams[i+3]+baseX-size1_x/2)
+                    m.set("rectPosY",m.get("posY")-2)
+                    m.set("sizeX",size1_x)
+                    m.set("sizeY",size1_y*2+12)
+                    m.set("tpc",Math.floor(m.get("cost")/m.get("call")))
+                    var tpcTop=(settingMap.get(id)||settingMap.get("all"))[0]
+                    m.set("detailColor",tpc_to_color(m.get("tpc"),tpcTop))
+                    m.set("detail","call:"+m.get("call")+",cost:"+m.get("cost")+",tpc:"+m.get("tpc"))
+                    a=ctx4.measureText(m.get("detail")).width+10
+                    m.set("detailSizeX", a)
+                }
+                for (var i=0;i<lineParams.length;i+=lineParamsLength) {
+                    var id=lineParams[i]
+                    var m=lineMap.get(id)
+                    m.set("id",id)
+                    var fromTo=id.split("->")
+                    var from=nodeMap.get(fromTo[0]),to=nodeMap.get(fromTo[1])
+                    m.set("pos1X",from.get("rectPosX")+from.get("sizeX"))
+                    m.set("pos1Y",from.get("posY")+size1_y+6)
+                    m.set("pos2X",to.get("rectPosX"))
+                    m.set("pos2Y",to.get("posY")+size1_y+6)
+                    var tpcTop=(settingMap.get(id)||settingMap.get(fromTo[1])||settingMap.get("all"))[0]
+                    m.set("color",tpc_to_color(m.get("tpc"),tpcTop))
+                    if (!relationMap.has(fromTo[0])) {
+                        var m2=new Map()
+                        m2.set("node",new Array())
+                        m2.set("line",new Array())
+                        relationMap.set(fromTo[0],m2)
+                    }
+                    var arr1=relationMap.get(fromTo[0]).get("node")
+                    var arr2=relationMap.get(fromTo[0]).get("line")
+                    arr1[arr1.length]=fromTo[1]
+                    arr2[arr2.length]=id
+                    if (!relationMap.has(fromTo[1])) {
+                        var m2=new Map()
+                        m2.set("node",new Array())
+                        m2.set("line",new Array())
+                        relationMap.set(fromTo[1],m2)
+                    }
+                    arr1=relationMap.get(fromTo[1]).get("node")
+                    arr2=relationMap.get(fromTo[1]).get("line")
+                    arr1[arr1.length]=fromTo[0]
+                    arr2[arr2.length]=id
+                }
+            }
+
+            function drawTitle() {
+                var baseX=20
+                var baseY=20
+                ctx.save()
+                var copyRight="Copyright©迷你玩"
+                ctx.font="10px Arial"
+                var width=ctx.measureText(copyRight).width
+                var height=ctx.measureText('M').width
+                ctx.fillText(copyRight,baseX+width/2+2,baseY+height/2)
+                ctx.restore()
+
+                ctx.save()
+                var msg="ServerMonitor"
+                ctx.font="bold 30px Arial"
+                ctx.shadowBlur=5
+                ctx.shadowColor="black"
+                var width2=ctx.measureText(msg).width
+                var height2=ctx.measureText('M').width
+                ctx.fillText(msg,baseX+width2/2,baseY+height+height2/2+7)
+                ctx.restore()
+
+                ctx.save()
+                ctx.font="10px Arial"
+                var width3=ctx.measureText(version).width
+                var height3=ctx.measureText('M').width
+                ctx.fillText(version,baseX+width2-width3/2-3,baseY+height+height2+height3/2+9)
+                ctx.restore()
+
+                ctx.beginPath()
+                ctx.moveTo(baseX-5,baseY-10);ctx.lineTo(baseX-5,baseY+30)
+                ctx.moveTo(baseX-10,baseY-5);ctx.lineTo(baseX+90,baseY-5)
+                ctx.moveTo(baseX+100,baseY-5);ctx.lineTo(baseX+120,baseY-5)
+                ctx.moveTo(baseX+170,baseY-5);ctx.lineTo(baseX+174,baseY-5)
+                ctx.moveTo(baseX+180,baseY-5);ctx.lineTo(baseX+230,baseY-5)
+                ctx.moveTo(baseX+208,baseY-10);ctx.lineTo(baseX+208,baseY+10)
+                ctx.moveTo(baseX+208,baseY+35);ctx.lineTo(baseX+208,baseY+37)
+                ctx.moveTo(baseX+208,baseY+40);ctx.lineTo(baseX+208,baseY+70)
+                ctx.moveTo(baseX+215,baseY+55);ctx.lineTo(baseX+170,baseY+55)
+                ctx.moveTo(baseX+169,baseY+55);ctx.lineTo(baseX+110,baseY+55)
+                ctx.moveTo(baseX+30,baseY+55);ctx.lineTo(baseX+28,baseY+55)
+                ctx.moveTo(baseX+25,baseY+55);ctx.lineTo(baseX+20,baseY+55)
+                ctx.moveTo(baseX+14,baseY+55);ctx.lineTo(baseX+4,baseY+55)
+                ctx.moveTo(baseX+3,baseY+55);ctx.lineTo(baseX-10,baseY+55)
+                ctx.moveTo(baseX-5,baseY+50);ctx.lineTo(baseX-5,baseY+60)
+                ctx.stroke()
+            }
+
+            function drawNode(id) {
+                var m=nodeMap.get(id)
+                ctx2.rect(m.get("rectPosX"),m.get("rectPosY"),m.get("sizeX"),m.get("sizeY"))
+                ctx2.stroke()
+                var f=document.createElement('font')
+                f.innerHTML=m.get("text")
+                f.style.position="absolute"
+                f.style.left=m.get("posX")
+                f.style.top=m.get("posY")
+                f.style.font="16px Arial"
+                f.style.zIndex = 0
+                nodeDiv.appendChild(f)
+                f=document.createElement("font")
+                f.innerHTML=m.get("subText")
+                f.style.position="absolute"
+                f.style.left=m.get("subPosX")
+                f.style.top=m.get("subPosY")
+                f.style.font="16px Arial"
+                f.style.zIndex = 0
+                nodeDiv.appendChild(f)
+            }
+
+            function drawLine(id) {
+                var m=lineMap.get(id)
+                ctx3.beginPath()
+                ctx3.strokeStyle=m.get("color")
+                var x1=m.get("pos1X"),y1=m.get("pos1Y"),x2=m.get("pos2X"),y2=m.get("pos2Y")
+                var lineWidth=6
+                ctx3.moveTo(x1,y1-lineWidth);ctx3.lineTo(x1,y1+lineWidth);ctx3.lineTo(x1,y1);ctx3.lineTo(x2,y2);ctx3.lineTo(x2,y2+lineWidth);ctx3.lineTo(x2,y2-lineWidth)
+                ctx3.stroke()
+            }
+
+            function drawNodeDetail(id,x,y) {
+                x+=15
+                var m=nodeMap.get(id)
+                if (m.get("call") == null) { return }
+                ctx4.globalAlpha=0.9
+                ctx4.fillStyle='#000000'
+                ctx4.fillRect(x-5,y,m.get("detailSizeX"),size4_y+8)
+                ctx4.fillStyle=m.get("detailColor")
+                ctx4.fillText(m.get("detail"),x,y+4)
+            }
+
+            function drawLineDetail(id,x,y,y2) {
+                x+=15
+                var arr=lineDetailMap.get(id)
+                var sizeY=arr[0].get("sizeY")
+                var offsetY=y2+sizeY-window.innerHeight+(document.body.clientWidth<document.body.scrollWidth?20:5)
+                y=0<offsetY?y-offsetY:y
+                ctx4.globalAlpha=0.9
+                ctx4.fillStyle='#000000'
+                ctx4.fillRect(x-5,y,arr[0].get("sizeX"),sizeY)
+                for (var i=0;i<arr.length;++i) {
+                    ctx4.fillStyle=arr[i].get("color")
+                    ctx4.fillText(arr[i].get("detail"),x,y+arr[i].get("offsetY"))
+                }
+            }
+
+            function drawRelation(id) {
+                drawNode(id)
+                var m=relationMap.get(id)
+                var arr1=m.get("node")
+                var arr2=m.get("line")
+
+                for (var i=0;i<arr1.length;++i) {
+                    drawNode(arr1[i])
+                }
+                for (var i=0;i<arr2.length;++i) {
+                    drawLine(arr2[i])
+                }
+            }
+
+            function drawRelationLine(id,x,y) {
+                var m=relationMap.get(id)
+                var arr=m.get("line")
+                for (var i=0;i<arr.length;++i) {
+                    drawLine(arr[i])
+                    if (ctx3.isPointInPath(x,y)) {
+                        hitLineId=arr[i]
+                        ctx3.lineWidth=4
+                        drawLine(arr[i])
+                        ctx3.lineWidth=lineWidth2
+                    }
+                }
+            }
+
+            function drawAllNode() {
+                for (let id of nodeMap.keys()) {
+                    drawNode(id)
+                }
+            }
+
+            function drawAllLine(x,y) {
+                for (let id of lineMap.keys()) {
+                    drawLine(id)
+                    if(hitLineId == null && ctx3.isPointInPath(x,y)) {
+                        hitLineId=id
+                        ctx3.lineWidth=4
+                        drawLine(id)
+                        ctx3.lineWidth=lineWidth2
+                    }
+                }
+            }
+
+            // hitType 1:node 2:line
+            function updateSetting(hitType, hitId) {
+                settingName.value=hitId
+                var arr
+                if (settingMap.has(hitId)) {
+                    arr=settingMap.get(hitId)
+                } else {
+                    arr=settingMap.get("all")
+                }
+                settingTpcTop.value=arr[0];
+                settingAlarmTop.value=arr[1];
+                settingAlarmInterval.value=arr[2];
+            }
+
+            // tpc -> [0, 510]
+            function tpc_to_color(tpc, tpcTop) {
+                if (tpc > tpcTop) {tpc=tpcTop}
+                var value=0
+                if (tpcTop==0) {
+                    value=510
+                } else {
+                    value=Math.floor(510*tpc/tpcTop)
+                }
+                var a=0,b=0
+                if (value<=255) {
+                    a=value
+                    b=255
+                } else {
+                    a=255
+                    b=510-value
+                }
+                var x=a.toString(16),y=b.toString(16)
+                if (a<16) {x="0"+x}
+                if (b<16) {y="0"+y}
+                return "#"+x+y+"00"
+            }
+
+            function clean(ctx) {
+                ctx.clearRect(0,0,c.width,c.height)
+                if (ctx==ctx2) {
+                    var childs=nodeDiv.childNodes
+                    for (var i=childs.length-1;i>=0;--i) {
+                        nodeDiv.removeChild(childs[i])
+                    }
+                }
+                ctx.beginPath()
+            }
+
+            init()
+            drawTitle()
+            drawAllNode()
+            drawAllLine(-1,-1)
+
+            canvasOnMouseMove=function(e) {
+                var rect=c3.getBoundingClientRect()
+                var x=e.clientX-rect.left*(c3.width/rect.width)
+                var y=e.clientY-rect.top*(c3.height/rect.height)
+
+                clean(ctx4)
+                var tmp=null
+                for (let id of nodeMap.keys()) {
+                    var m=nodeMap.get(id)
+                    var x1=m.get("rectPosX"),y1=m.get("rectPosY"),x2=x1+m.get("sizeX"),y2=y1+m.get("sizeY")
+                    if (x1<=x&&y1<=y&&x<=x2&&y<=y2) {
+                        tmp=id
+                        break
+                    }
+                }
+                if (tmp) {
+                    drawNodeDetail(tmp,x,y)
+                    return
+                }
+
+                clean(ctx3)
+                hitLineId=null
+                if (hitNodeId==null) {
+                    drawAllLine(x,y)
+                } else {
+                    drawRelationLine(hitNodeId,x,y)
+                }
+                if (hitLineId) {
+                    drawLineDetail(hitLineId,x,y,e.y)
+                }
+            }
+            canvasOnMouseUp=function(e) {
+                var rect=c3.getBoundingClientRect()
+                var x=e.clientX-rect.left*(c3.width/rect.width)
+                var y=e.clientY-rect.top*(c3.height/rect.height)
+                for (const arr of mouseForbidMap) {
+                    if (arr[0]<=x&&x<=arr[1]&&arr[2]<=y&&y<=arr[3]) {
+                        return
+                    }
+                }
+                var tmp=null
+                for (let id of nodeMap.keys()) {
+                    var m=nodeMap.get(id)
+                    var x1=m.get("rectPosX"),y1=m.get("rectPosY"),x2=x1+m.get("sizeX"),y2=y1+m.get("sizeY")
+                    if (x1<=x&&y1<=y&&x<=x2&&y<=y2) {
+                        tmp=id
+                        break
+                    }
+                }
+                if (tmp!=null) {
+                    clean(ctx2)
+                    clean(ctx3)
+                    clean(ctx4)
+                    drawRelation(tmp)
+                    if (debug) {
+                        updateSetting(1,tmp)
+                    }
+                } else if (hitNodeId!=null) {
+                    clean(ctx2)
+                    clean(ctx3)
+                    clean(ctx4)
+                    drawAllNode()
+                    drawAllLine(-1,-1)
+                    if (debug) {
+                        updateSetting(1,null)
+                    }
+                }
+                hitNodeId=tmp
+            }
+            window.onmousemove=function(e) {
+                canvasOnMouseMove(e)
+            }
+            window.onmouseup=function(e) {
+                canvasOnMouseUp(e)
+            }
+
+            function input() {
+                var arr
+                if (settingMap.has(settingName.value)) {
+                    arr=settingMap.get(settingName.value)
+                } else {
+                    arr=settingMap.get("all")
+                }
+                settingTpcTop.value=arr[0];
+                settingAlarmTop.value=arr[1];
+                settingAlarmInterval.value=arr[2];
+            }
+
+            function submit() {
+                var v0=settingName.value
+                var v1=settingTpcTop.value
+                var v2=settingAlarmTop.value
+                var v3=settingAlarmInterval.value
+                var url="http://"+addr+"/miniw/goserver?cmd=setting&time=0&auth=ef00b050d266843a5f56cc29e3664110&env="+env+"&name="+v0+"&tpcTop="+v1+"&alarmTop="+v2+"&alarmInterval="+v3
+                var req=new XMLHttpRequest()
+                req.onload=function() {
+                    if (req.responseText.indexOf("ok") != -1) {
+                        response.style.color="green"
+                    } else {
+                        response.style.color="red"
+                    }
+                    response.innerHTML=req.responseText
+                }
+                req.open("GET", url)
+                req.send(null)
+            }
+
+            function jumpToSortTable() {
+                window.location.href="http://"+addr+"/miniw/goserver?cmd=sortTable&time=0&auth=8063dac0c6f118dc216f616f80a5097f&env="+env
+            }
+        </script>
+    </body>
+</html>

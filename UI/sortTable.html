@@ -1,0 +1,204 @@
+<html>
+    <head>
+        <style>
+            .canvas {
+                position: absolute;
+                top: 0px;
+                left: 0px;
+                pointer-events: none;
+            }
+            td:hover {
+                background: lemonchiffon;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="c" class="canvas"></canvas>
+        <table id="tab" border="1" align="center" cellpadding="6" style="text-align: center"></table>
+        <div style="position:absolute;left:270;top:15">
+            <button onclick="jumpToGraph()" type="button">Graph</button>
+        </div>
+        <script>
+            var version="3.0.1"
+            var env=%s
+            var addr="%s"
+            var titleParams={TYPE:0,SERVER:1,CODE:2,CALL:3,COST:4,TPC:5}
+            var cellParams=[%s]
+            var select="CALL"
+            var count=1
+            cellParams.sort(function(a,b) {
+                return b[3] - a[3]
+            })
+
+            function drawTitle() {
+                c.width=window.innerWidth
+                c.height=window.innerHeight
+                var ctx=c.getContext("2d")
+                ctx.font="15px Arial"
+                ctx.textAlign="center"
+                ctx.textBaseline="middle"
+                var baseX=20
+                var baseY=20
+                ctx.save()
+                var copyRight="Copyright©迷你玩"
+                ctx.font="10px Arial"
+                var width=ctx.measureText(copyRight).width
+                var height=ctx.measureText('M').width
+                ctx.fillText(copyRight,baseX+width/2+2,baseY+height/2)
+                ctx.restore()
+
+                ctx.save()
+                var msg="ServerMonitor"
+                ctx.font="bold 30px Arial"
+                ctx.shadowBlur=5
+                ctx.shadowColor="black"
+                var width2=ctx.measureText(msg).width
+                var height2=ctx.measureText('M').width
+                ctx.fillText(msg,baseX+width2/2,baseY+height+height2/2+7)
+                ctx.restore()
+
+                ctx.save()
+                ctx.font="10px Arial"
+                var width3=ctx.measureText(version).width
+                var height3=ctx.measureText('M').width
+                ctx.fillText(version,baseX+width2-width3/2-3,baseY+height+height2+height3/2+9)
+                ctx.restore()
+
+                ctx.beginPath()
+                ctx.moveTo(baseX-5,baseY-10);ctx.lineTo(baseX-5,baseY+30)
+                ctx.moveTo(baseX-10,baseY-5);ctx.lineTo(baseX+90,baseY-5)
+                ctx.moveTo(baseX+100,baseY-5);ctx.lineTo(baseX+120,baseY-5)
+                ctx.moveTo(baseX+170,baseY-5);ctx.lineTo(baseX+174,baseY-5)
+                ctx.moveTo(baseX+180,baseY-5);ctx.lineTo(baseX+230,baseY-5)
+                ctx.moveTo(baseX+208,baseY-10);ctx.lineTo(baseX+208,baseY+10)
+                ctx.moveTo(baseX+208,baseY+35);ctx.lineTo(baseX+208,baseY+37)
+                ctx.moveTo(baseX+208,baseY+40);ctx.lineTo(baseX+208,baseY+70)
+                ctx.moveTo(baseX+215,baseY+55);ctx.lineTo(baseX+170,baseY+55)
+                ctx.moveTo(baseX+169,baseY+55);ctx.lineTo(baseX+110,baseY+55)
+                ctx.moveTo(baseX+30,baseY+55);ctx.lineTo(baseX+28,baseY+55)
+                ctx.moveTo(baseX+25,baseY+55);ctx.lineTo(baseX+20,baseY+55)
+                ctx.moveTo(baseX+14,baseY+55);ctx.lineTo(baseX+4,baseY+55)
+                ctx.moveTo(baseX+3,baseY+55);ctx.lineTo(baseX-10,baseY+55)
+                ctx.moveTo(baseX-5,baseY+50);ctx.lineTo(baseX-5,baseY+60)
+                ctx.stroke()
+            }
+            drawTitle()
+
+            function drawSortTable(key) {
+                var size=tab.rows.length
+                for (i=size-1;0<=i;--i) {
+                    tab.deleteRow(i)
+                }
+
+                var row=tab.insertRow()
+                for (var k in titleParams) {
+                    var node=row.insertCell()
+                    if (k == key)
+                        node.innerHTML=k+(count%%2==0?"↑":"↓")
+                    else
+                        node.innerHTML=k
+                    node.id=k
+                    node.onclick=click
+                    node.style.backgroundColor="#98FB98"
+                }
+                for (var i=0;i<cellParams.length;++i) {
+                    var row=tab.insertRow();
+                    for (var j=0;j<cellParams[i].length;++j) {
+                        var node=row.insertCell()
+                        node.innerHTML=cellParams[i][j]
+                        if (j == titleParams[select]) {
+                            node.style.backgroundColor = "#FAEBD7"
+                        }
+                    }
+                }
+            }
+            drawSortTable("CALL")
+
+            function click() {
+                if (select != this.id)
+                    count=0
+                select=this.id
+                ++count
+
+                switch (this.id) {
+                    case "TYPE":
+                        if (count%%2==0) {
+                            cellParams.sort(function(a,b) {
+                                return a[0].localeCompare(b[0])
+                            })
+                        } else {
+                            cellParams.sort(function(a,b) {
+                                return b[0].localeCompare(a[0])
+                            })
+                        }
+                        drawSortTable(this.id)
+                        break
+                    case "SERVER":
+                        if (count%%2==0) {
+                            cellParams.sort(function(a,b) {
+                                return a[1].localeCompare(b[1])
+                            })
+                        } else {
+                            cellParams.sort(function(a,b) {
+                                return b[1].localeCompare(a[1])
+                            })
+                        }
+                        drawSortTable(this.id)
+                        break
+                    case "CODE":
+                        if (count%%2==0) {
+                            cellParams.sort(function(a,b) {
+                                return a[2].localeCompare(b[2])
+                            })
+                        } else {
+                            cellParams.sort(function(a,b) {
+                                return b[2].localeCompare(a[2])
+                            })
+                        }
+                        drawSortTable(this.id)
+                        break
+                    case "CALL":
+                        if (count%%2==0) {
+                            cellParams.sort(function(a,b) {
+                                return a[3] - b[3]
+                            })
+                        } else {
+                            cellParams.sort(function(a,b) {
+                                return b[3] - a[3]
+                            })
+                        }
+                        drawSortTable(this.id)
+                        break
+                    case "COST":
+                        if (count%%2==0) {
+                            cellParams.sort(function(a,b) {
+                                return a[4] - b[4]
+                            })
+                        } else {
+                            cellParams.sort(function(a,b) {
+                                return b[4] - a[4]
+                            })
+                        }
+                        drawSortTable(this.id)
+                        break
+                    case "TPC":
+                        if (count%%2==0) {
+                            cellParams.sort(function(a,b) {
+                                return a[5] - b[5]
+                            })
+                        } else {
+                            cellParams.sort(function(a,b) {
+                                return b[5] - a[5]
+                            })
+                        }
+                        drawSortTable(this.id)
+                        break
+                }
+            }
+
+            function jumpToGraph() {
+                window.location.href="http://"+addr+"/miniw/goserver?cmd=graph&time=0&auth=59569d7a466f4d7e4f11842c3a33da92&env="+env
+            }
+        </script>
+    </body>
+</html>
